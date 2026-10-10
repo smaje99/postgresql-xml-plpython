@@ -18,6 +18,7 @@ CREATE TEMP TABLE generation_job_history (
 \copy generation_job_history (employee_id, start_date, title) FROM '/workspace/fixtures/xml-generation/job-history.csv' WITH (FORMAT csv, HEADER true)
 
 CREATE TEMP TABLE expected_employee_xml (document_text text NOT NULL);
+-- Keep this fixture on one line so psql \copy imports it as one exact-comparison value.
 \copy expected_employee_xml (document_text) FROM '/workspace/fixtures/xml-generation/expected-employees.xml'
 
 CREATE TEMP TABLE generated_employee_xml AS

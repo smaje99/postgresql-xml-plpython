@@ -47,9 +47,10 @@ The native SQL/XML script checks a default-namespace document both without a nam
 The validation/persistence script:
 
 - compares PostgreSQL's XML well-formedness check with lxml XSD validation;
-- exercises 11 valid and invalid XML/XSD cases;
+- exercises 17 valid and invalid XML/XSD cases, including import/include rejection, byte and nesting limits, and DTD/entity rejection;
 - persists two valid documents by projecting them with `XMLTABLE`;
-- verifies that malformed and XSD-invalid documents are rejected without inserting rows;
+- verifies that malformed and XSD-invalid documents are rejected with SQLSTATE `22023` and a stable stage/category message, without inserting rows;
+- checks that a non-superuser cannot create a function in the untrusted `plpython3u` language;
 - keeps validation inputs and expected outcomes in `fixtures/xsd-validation-insertion/`.
 
 Expected results: the generated XML matches `fixtures/xml-generation/expected-employees.xml`; namespace assertions pass; every validation case reports `matches_expected = t`; valid documents persist and invalid documents are rejected.
@@ -74,7 +75,7 @@ The recorded run used the official `postgres:18.6-bookworm` image, PostgreSQL `1
 
 PostgreSQL native XML support checks well-formedness and provides SQL/XML and XPath operations; it does not validate arbitrary documents against XSD. In these experiments, lxml runs inside PostgreSQL through `plpython3u` to validate the supplied schema before `XMLTABLE` extracts typed values for insertion.
 
-The helper disables entity resolution, DTD loading, network access, and huge-tree mode, and rejects documents with DTD declarations. The cases exercise these settings but do not constitute a complete parser security review. Schema imports/includes, size and depth limits, privilege boundaries, production error handling, and performance are outside the current test coverage.
+The helper disables entity resolution, DTD loading, network access, and huge-tree mode; rejects DTD declarations and XSD import/include/redefine/override directives; caps XML at 1 MiB and XSD at 256 KiB; and caps nesting at 64 elements. These limits are explicit lab policy values, not universal production recommendations. They bound work in the Python parsing path; PostgreSQL has already received the text arguments by then. The script also checks the untrusted-language privilege boundary and the example's SQL error contract. This is still not a complete parser security review or a production privilege design. The preflight parser makes an additional pass over each input, and its performance has not been measured.
 
 ## License and attribution
 

@@ -15,6 +15,11 @@ AS $$
 import json
 from lxml import etree
 
+MAX_XML_BYTES = 1024 * 1024
+MAX_XSD_BYTES = 256 * 1024
+MAX_NESTING_DEPTH = 64
+XSD_NAMESPACE = "http://www.w3.org/2001/XMLSchema"
+
 def parser():
     return etree.XMLParser(
         resolve_entities=False,
@@ -23,22 +28,88 @@ def parser():
         huge_tree=False,
     )
 
+class DepthLimitExceeded(Exception):
+    pass
+
+class DoctypeRejected(Exception):
+    pass
+
+class PreflightTarget:
+    def __init__(self, max_depth):
+        self.max_depth = max_depth
+        self.depth = 0
+
+    def start(self, tag, attributes):
+        self.depth += 1
+        if self.depth > self.max_depth:
+            raise DepthLimitExceeded()
+
+    def end(self, tag):
+        self.depth -= 1
+
+    def data(self, data):
+        pass
+
+    def comment(self, text):
+        pass
+
+    def pi(self, target, data):
+        pass
+
+    def doctype(self, name, public_id, system_id):
+        raise DoctypeRejected()
+
+    def close(self):
+        return None
+
+def preflight(document_bytes):
+    guarded_parser = etree.XMLParser(
+        target=PreflightTarget(MAX_NESTING_DEPTH),
+        resolve_entities=False,
+        load_dtd=False,
+        no_network=True,
+        huge_tree=False,
+    )
+    etree.fromstring(document_bytes, guarded_parser)
+
 try:
-    xsd_root = etree.fromstring(xsd_text.encode("utf-8"), parser())
-    if xsd_root.getroottree().docinfo.doctype:
-        return json.dumps({"valid": False, "stage": "xsd_parse", "category": "doctype_rejected"})
-    schema = etree.XMLSchema(xsd_root)
+    xsd_bytes = xsd_text.encode("utf-8")
+    if len(xsd_bytes) > MAX_XSD_BYTES:
+        return json.dumps({"valid": False, "stage": "xsd_parse", "category": "xsd_too_large"})
+    preflight(xsd_bytes)
+    xsd_root = etree.fromstring(xsd_bytes, parser())
+    external_schema_tags = {
+        f"{{{XSD_NAMESPACE}}}include",
+        f"{{{XSD_NAMESPACE}}}import",
+        f"{{{XSD_NAMESPACE}}}redefine",
+        f"{{{XSD_NAMESPACE}}}override",
+    }
+    if any(element.tag in external_schema_tags for element in xsd_root.iter()):
+        return json.dumps({"valid": False, "stage": "xsd_parse", "category": "external_schema_reference_rejected"})
 except etree.XMLSyntaxError as exc:
     return json.dumps({"valid": False, "stage": "xsd_parse", "category": "malformed_xsd", "detail": str(exc)})
+except DepthLimitExceeded:
+    return json.dumps({"valid": False, "stage": "xsd_parse", "category": "xsd_too_deep"})
+except DoctypeRejected:
+    return json.dumps({"valid": False, "stage": "xsd_parse", "category": "doctype_rejected"})
+
+try:
+    schema = etree.XMLSchema(xsd_root)
 except etree.XMLSchemaParseError as exc:
     return json.dumps({"valid": False, "stage": "xsd_compile", "category": "invalid_xsd", "detail": str(exc)})
 
 try:
-    xml_root = etree.fromstring(xml_text.encode("utf-8"), parser())
-    if xml_root.getroottree().docinfo.doctype:
-        return json.dumps({"valid": False, "stage": "xml_parse", "category": "doctype_rejected"})
+    xml_bytes = xml_text.encode("utf-8")
+    if len(xml_bytes) > MAX_XML_BYTES:
+        return json.dumps({"valid": False, "stage": "xml_parse", "category": "xml_too_large"})
+    preflight(xml_bytes)
+    xml_root = etree.fromstring(xml_bytes, parser())
 except etree.XMLSyntaxError as exc:
     return json.dumps({"valid": False, "stage": "xml_parse", "category": "malformed_xml", "detail": str(exc)})
+except DepthLimitExceeded:
+    return json.dumps({"valid": False, "stage": "xml_parse", "category": "xml_too_deep"})
+except DoctypeRejected:
+    return json.dumps({"valid": False, "stage": "xml_parse", "category": "doctype_rejected"})
 
 if schema.validate(xml_root):
     return json.dumps({"valid": True, "stage": "xsd_validation", "category": "valid"})
@@ -61,6 +132,46 @@ CREATE TEMP TABLE xml_validation_cases (
 );
 
 \ir ../fixtures/xsd-validation-insertion/validation-cases.sql
+
+-- Deliberately exercise a small, explicit policy for this lab helper:
+-- 1 MiB XML, 256 KiB XSD, and at most 64 nested elements.
+INSERT INTO xml_validation_cases
+SELECT 'xml_too_large',
+       '<employee><firstName>' || repeat('x', 1048576) || '</firstName><salary>1200.50</salary><hireDate>2024-01-31</hireDate></employee>',
+       '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="employee"><xs:complexType><xs:sequence><xs:element name="firstName" type="xs:string"/><xs:element name="salary" type="xs:decimal"/><xs:element name="hireDate" type="xs:date"/></xs:sequence></xs:complexType></xs:element></xs:schema>',
+       false,
+       'xml_too_large';
+
+INSERT INTO xml_validation_cases
+SELECT 'xsd_too_large',
+       '<employee><firstName>Ada</firstName><salary>1200.50</salary><hireDate>2024-01-31</hireDate></employee>',
+       '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="employee" type="xs:string"/></xs:schema>' || repeat(' ', 262144),
+       false,
+       'xsd_too_large';
+
+INSERT INTO xml_validation_cases
+SELECT 'xml_too_deep',
+       repeat('<level>', 65) || 'value' || repeat('</level>', 65),
+       '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="employee" type="xs:string"/></xs:schema>',
+       false,
+       'xml_too_deep';
+
+INSERT INTO xml_validation_cases
+SELECT 'xsd_too_deep',
+       '<employee/>',
+       '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:annotation>' || repeat('<xs:appinfo>', 63) || repeat('</xs:appinfo>', 63) || '</xs:annotation></xs:schema>',
+       false,
+       'xsd_too_deep';
+
+INSERT INTO xml_validation_cases VALUES
+('xsd_import_rejected',
+ '<employee/>',
+ '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:import namespace="urn:external" schemaLocation="https://127.0.0.1:9/external.xsd"/><xs:element name="employee" type="xs:string"/></xs:schema>',
+ false, 'external_schema_reference_rejected'),
+('xsd_include_rejected',
+ '<employee/>',
+ '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:include schemaLocation="file:///etc/passwd"/><xs:element name="employee" type="xs:string"/></xs:schema>',
+ false, 'external_schema_reference_rejected');
 
 CREATE TEMP TABLE xml_validation_results AS
 SELECT c.case_id,
@@ -156,6 +267,9 @@ DO $$
 DECLARE
     invalid_case record;
     persisted_count integer;
+    actual_sqlstate text;
+    actual_message text;
+    expected_message text;
 BEGIN
     FOR invalid_case IN
         SELECT * FROM xml_validation_cases WHERE expected_valid = false
@@ -164,7 +278,19 @@ BEGIN
             PERFORM xml_research.persist_employee_xml(invalid_case.xml_text, invalid_case.xsd_text);
             RAISE EXCEPTION 'Case % unexpectedly persisted', invalid_case.case_id;
         EXCEPTION WHEN SQLSTATE '22023' THEN
-            NULL;
+            GET STACKED DIAGNOSTICS
+                actual_sqlstate = RETURNED_SQLSTATE,
+                actual_message = MESSAGE_TEXT;
+
+            SELECT format('XML rejected during %s: %s', validation_stage, validation_category)
+              INTO expected_message
+              FROM xml_validation_results
+             WHERE case_id = invalid_case.case_id;
+
+            IF actual_sqlstate <> '22023' OR actual_message IS DISTINCT FROM expected_message THEN
+                RAISE EXCEPTION 'Case % returned unexpected SQL error: [%] %',
+                    invalid_case.case_id, actual_sqlstate, actual_message;
+            END IF;
         END;
     END LOOP;
 
@@ -194,6 +320,32 @@ BEGIN
     END IF;
 END
 $$;
+
+\echo 'Untrusted PL/Python privilege boundary'
+DO $$
+BEGIN
+    IF (SELECT lanpltrusted FROM pg_language WHERE lanname = 'plpython3u') IS DISTINCT FROM false THEN
+        RAISE EXCEPTION 'Expected plpython3u to be marked as an untrusted language';
+    END IF;
+END
+$$;
+
+BEGIN;
+CREATE ROLE xml_research_unprivileged NOLOGIN;
+GRANT CREATE ON SCHEMA xml_research TO xml_research_unprivileged;
+SET ROLE xml_research_unprivileged;
+DO $$
+BEGIN
+    BEGIN
+        EXECUTE 'CREATE FUNCTION xml_research.must_not_be_created() RETURNS integer LANGUAGE plpython3u AS $py$ return 1 $py$';
+        RAISE EXCEPTION 'A non-superuser role unexpectedly created a plpython3u function';
+    EXCEPTION WHEN insufficient_privilege THEN
+        RAISE NOTICE 'Non-superuser role was denied permission to create a plpython3u function';
+    END;
+END
+$$;
+RESET ROLE;
+ROLLBACK;
 
 \echo 'Native XMLTABLE projection with an explicitly mapped namespace'
 SELECT *
