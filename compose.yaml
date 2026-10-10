@@ -1,0 +1,22 @@
+services:
+  postgres:
+    build: .
+    image: postgresql-xml-plpython-lab:18.6
+    restart: "no"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-xml_lab}
+      POSTGRES_USER: ${POSTGRES_USER:-xml_lab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Copy .env.example to .env and set a local password}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./sql:/workspace/sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  postgres-data:
