@@ -38,11 +38,14 @@ docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD
 docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /workspace/sql/01-native-xml-generation.sql'
 docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /workspace/sql/02-native-sql-xml.sql'
 docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /workspace/sql/03-xsd-validation-cases.sql'
+docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /workspace/sql/04-historical-output-xsd-cases.sql'
 ```
 
 The generation script uses separate CSV inputs, an expected XML document, and a small output XSD written for this example. It verifies that `XMLELEMENT`, `XMLATTRIBUTES`, `XMLFOREST`, and ordered `XMLAGG` produce one document with employees having zero, one, and multiple history rows. Exact comparison covers XML escaping, omitted null fields, ISO date formatting, and deterministic history ordering; `XMLTABLE` checks each history count, and lxml validates the result against the example output XSD inside PostgreSQL. That XSD describes this fixture's output contract and is not presented as the historical lab's `employee_schema.xml`.
 
 The native SQL/XML script checks a default-namespace document both without a namespace mapping (zero rows) and with an explicit alias in `XMLNAMESPACES` (typed values extracted).
+
+The historical compatibility script reproduces the original `hr_select.sql` XML shape using synthetic employees with zero, one, and multiple job-history rows. It validates each document against the original, unchanged `employee_schema.xml`: the one-history case is valid; the zero-history case emits an empty `<jobHistory/>` placeholder that fails the required child sequence; and the multiple-history case exceeds the schema's default `maxOccurs="1"`. This documents the source query/schema mismatch rather than silently correcting either artifact. The source and license provenance for the copied schema are recorded in `fixtures/historical-output/README.md`.
 
 The validation/persistence script:
 
@@ -79,4 +82,4 @@ The helper disables entity resolution, DTD loading, network access, and huge-tre
 
 ## License and attribution
 
-This example project is licensed under GNU GPL version 3 only (`GPL-3.0-only`); see [LICENSE](LICENSE). It includes a disclaimer of warranty and copyleft terms: when you convey a covered modified version, GPLv3 requires preserving the license and providing the corresponding source as its terms specify. The original university lab files are intentionally not copied here; their source and GPLv3 notice remain in the research workspace.
+This example project is licensed under GNU GPL version 3 only (`GPL-3.0-only`); see [LICENSE](LICENSE). It includes a disclaimer of warranty and copyleft terms: when you convey a covered modified version, GPLv3 requires preserving the license and providing the corresponding source as its terms specify. The historical `employee_schema.xml` used by the compatibility case is copied unchanged; its source revision and license provenance are recorded in `fixtures/historical-output/README.md`. Other original university lab files remain in the research workspace.

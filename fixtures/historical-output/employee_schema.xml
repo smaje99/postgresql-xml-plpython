@@ -1,0 +1,31 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <xs:element name="employee">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="employeeId" type="xs:integer"/>
+        <xs:element name="firstName" type="xs:string"/>
+        <xs:element name="lastName" type="xs:string"/>
+        <xs:element name="email" type="xs:string"/>
+        <xs:element name="jobHistories" minOccurs="0">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="jobHistory">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element name="startDate" type="xs:dateTime"/>
+                    <xs:element name="endDate" type="xs:dateTime"/>
+                    <xs:element name="jobTitle" type="xs:string"/>
+                    <xs:element name="departmentName" type="xs:string"/>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="id" type="xs:integer"/>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>
