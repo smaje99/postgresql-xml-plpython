@@ -31,23 +31,28 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Run the runtime probe, native SQL/XML smoke checks, and validation/persistence matrix:
+Run the runtime probe, relational-to-XML generation case, native SQL/XML and namespace checks, and XSD validation/persistence matrix:
 
 ```sh
 docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /workspace/sql/00-runtime-smoke.sql'
+docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /workspace/sql/01-native-xml-generation.sql'
 docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /workspace/sql/02-native-sql-xml.sql'
 docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /workspace/sql/03-xsd-validation-cases.sql'
 ```
 
-The final script:
+The generation script uses separate CSV inputs and an expected XML document. It verifies that `XMLELEMENT`, `XMLATTRIBUTES`, `XMLFOREST`, and ordered `XMLAGG` produce the expected document, including escaped text, omitted null fields, and multiple history elements in order.
+
+The native SQL/XML script checks a default-namespace document both without a namespace mapping (zero rows) and with an explicit alias in `XMLNAMESPACES` (typed values extracted).
+
+The validation/persistence script:
 
 - compares PostgreSQL's XML well-formedness check with lxml XSD validation;
 - exercises 11 valid and invalid XML/XSD cases;
 - persists two valid documents by projecting them with `XMLTABLE`;
 - verifies that malformed and XSD-invalid documents are rejected without inserting rows;
-- demonstrates a namespaced `XMLTABLE` projection.
+- keeps validation inputs and expected outcomes in `fixtures/xsd-validation-insertion/`.
 
-Expected result: every validation case reports `matches_expected = t`; the persistence assertions complete without an exception; the namespaced projection returns `Ada` and `1200.50`.
+Expected results: the generated XML matches `fixtures/xml-generation/expected-employees.xml`; namespace assertions pass; every validation case reports `matches_expected = t`; valid documents persist and invalid documents are rejected.
 
 Stop the database when finished:
 
