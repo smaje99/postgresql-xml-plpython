@@ -40,7 +40,7 @@ docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD
 docker compose run --rm --no-deps postgres sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f /workspace/sql/03-xsd-validation-cases.sql'
 ```
 
-The generation script uses separate CSV inputs and an expected XML document. It verifies that `XMLELEMENT`, `XMLATTRIBUTES`, `XMLFOREST`, and ordered `XMLAGG` produce the expected document, including escaped text, omitted null fields, and multiple history elements in order.
+The generation script uses separate CSV inputs, an expected XML document, and a small output XSD written for this example. It verifies that `XMLELEMENT`, `XMLATTRIBUTES`, `XMLFOREST`, and ordered `XMLAGG` produce one document with employees having zero, one, and multiple history rows. Exact comparison covers XML escaping, omitted null fields, ISO date formatting, and deterministic history ordering; `XMLTABLE` checks each history count, and lxml validates the result against the example output XSD inside PostgreSQL. That XSD describes this fixture's output contract and is not presented as the historical lab's `employee_schema.xml`.
 
 The native SQL/XML script checks a default-namespace document both without a namespace mapping (zero rows) and with an explicit alias in `XMLNAMESPACES` (typed values extracted).
 
